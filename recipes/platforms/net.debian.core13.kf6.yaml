@@ -1,0 +1,30 @@
+# A platform with KDE Frameworks 6 on the Debian 13 core.
+type: platform
+component: net.debian.core13.kf6
+version: "6.8.0"
+name: KDE Frameworks 6 Platform (TEST)
+summary: KDE Frameworks 6 and Qt 6 libraries on a Debian 13 core
+project-license: LicenseRef-Debian-DFSG
+homepage: https://www.debian.org/
+
+base: net.debian.core13
+
+packages:
+  apt:
+  - libqt6core6t64
+  - libqt6gui6
+  - libqt6widgets6
+  - libqt6dbus6
+  - libqt6network6
+  - libqt6opengl6
+  - libqt6qml6
+  - libqt6quick6
+  - qt6-qpa-plugins
+  - qml6-module-qtquick
+  - qt6-wayland
+  - plasma-integration
+packages-sdk:
+  apt:
+  - qt6-base-dev
+  - qt6-declarative-dev
+  - qt6-tools-dev-tools
