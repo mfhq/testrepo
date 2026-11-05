@@ -4,18 +4,21 @@
 # the repository, and create that release first if there is none yet. Runs on
 # the runner, with gh.
 #
-# RELEASE_TAG names the release, and REPO_URL is where the repository is.
+# The image URL prefix in manifold-repo.toml names the release.
 #
 set -euo pipefail
 shopt -s nullglob
 
-if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-    echo "Creating the release $RELEASE_TAG"
-    gh release create "$RELEASE_TAG" \
+release_tag=$(python3 -I "$(dirname "$0")/repo-config.py" release-tag)
+repo_url=$(python3 -I "$(dirname "$0")/repo-config.py" url)
+
+if ! gh release view "$release_tag" > /dev/null 2>&1; then
+    echo "Creating the release $release_tag"
+    gh release create "$release_tag" \
         --prerelease \
         --target "$GITHUB_SHA" \
         --title "Repository images" \
-        --notes "The images of the Manifold repository at $REPO_URL. The workflow that publishes the repository uploads and removes them, so please leave them alone."
+        --notes "The images of the Manifold repository at $repo_url. The workflow that publishes the repository uploads and removes them, so please leave them alone."
 fi
 
 uploads=(_repo/uploads/*)
@@ -28,4 +31,4 @@ for upload in "${uploads[@]}"; do
     echo "Uploading $(basename "$upload") ($(du -h --apparent-size "$upload" | cut -f1))"
 done
 # an asset with the same name and other content is replaced, as the repository checked that
-gh release upload "$RELEASE_TAG" "${uploads[@]}" --clobber
+gh release upload "$release_tag" "${uploads[@]}" --clobber

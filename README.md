@@ -34,14 +34,16 @@ the time of the commit as `SOURCE_DATE_EPOCH`. Building a commit again gives the
 images, as long as the packages and sources they are built from did not change.
 
 On `main`, the bundles are signed, and manifold-mrepo makes a new repository from them on
-every run. The images that the release does not have yet are uploaded to it, and the
-indexes and catalogs are deployed to Pages. Images that neither the new index nor the one
-before it lists are then removed from the release.
+every run, as `manifold-repo.toml` configures it. The images that the release does not
+have yet are uploaded to it, and the indexes and catalogs are deployed to Pages, with an
+`index.html` in every directory that `write-dir-listings.py` writes, so the tree can be
+browsed. Images that neither the new index nor the one before it lists are then removed
+from the release.
 
-Pull requests only build the recipes. The root index expires after a week, so it is
-signed and published again every day. Nothing is built for that, we publish the bundles of
-the last build again, for as long as their artifacts are kept (30 days). Run the workflow
-by hand to build everything again, or to publish without building.
+Pull requests only build the recipes. The root index stays valid for 180 days, and it is
+signed and published again every month. Nothing is built for that if the bundles of the
+last build are still there, their artifacts are kept for 30 days. Run the workflow by hand
+to build everything again, or to publish without building.
 
 To reproduce what the workflow does, build the image it runs everything in:
 
@@ -50,21 +52,3 @@ $ sudo podman build -t manifold-tools -f ci/Containerfile ci
 ```
 
 The scripts in `ci/` then run in it with `ci/in-container.sh`.
-
-
-## Setting it up
-
-The workflow needs two keys, one that signs the bundles and one that signs the repository:
-
-```console
-$ ssh-keygen -t ed25519 -N '' -C 'testrepo bundles' -f bundle-key
-$ ssh-keygen -t ed25519 -N '' -C 'testrepo repository' -f repo-key
-$ gh secret set MANIFOLD_SIGNING_KEY < bundle-key
-$ gh secret set MREPO_SIGNING_KEY < repo-key
-$ cp bundle-key.pub trusted-keys/ci.pub
-```
-
-The repository only imports bundles that a key in `trusted-keys/` signed. Its own public
-key is published next to the root index, as `testrepo_key.pub`.
-
-GitHub Pages has to be set to deploy from GitHub Actions.

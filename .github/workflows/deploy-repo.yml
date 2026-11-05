@@ -2,6 +2,7 @@
 # manifold-builder, cores first, then platforms, then apps, and publish them as
 # a Manifold repository with manifold-mrepo: its indexes and catalogs on GitHub
 # Pages, and its images as assets of one release, so Pages never serves them.
+# manifold-repo.toml configures the repository, and names that release.
 #
 # The repository has no state of its own. Every run makes it again from the
 # bundles of one build, and the release keeps the images of the index that was
@@ -12,9 +13,9 @@ on:
   push:
     branches: [main]
   pull_request:
-  # the root index expires after a week, so we sign it again every day, from the bundles of the last build
+  # the root index stays valid for 180 days, we sign it again every month, from the bundles of the last build
   schedule:
-    - cron: '23 4 * * *'
+    - cron: '23 4 1 * *'
   workflow_dispatch:
     inputs:
       rebuild:
@@ -30,12 +31,6 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-env:
-  REPO_ID: testrepo
-  REPO_SUMMARY: Test images for Manifold
-  # the release whose assets are the images
-  RELEASE_TAG: artifacts
 
 jobs:
   plan:
@@ -199,7 +194,6 @@ jobs:
       - uses: ./.github/actions/setup-tools
 
       - name: Set up Pages
-        id: pages
         uses: actions/configure-pages@v6
 
       - name: Download the bundles
@@ -221,21 +215,15 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Make the repository
-        env:
-          REPO_URL: ${{ steps.pages.outputs.base_url }}
-          IMAGE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/{file}
-        run: ci/in-container.sh --env REPO_ID --env REPO_SUMMARY --env REPO_URL --env IMAGE_URL ci/repo-import.sh
+        run: ci/in-container.sh ci/repo-import.sh
 
       - name: Upload new images to the release
-        env:
-          REPO_URL: ${{ steps.pages.outputs.base_url }}
         run: ci/upload-images.sh
 
       - name: Publish the repository
         env:
-          REPO_URL: ${{ steps.pages.outputs.base_url }}
           MREPO_SIGNING_KEY: ${{ secrets.MREPO_SIGNING_KEY }}
-        run: ci/in-container.sh --env REPO_URL --env MREPO_SIGNING_KEY ci/repo-publish.sh
+        run: ci/in-container.sh --env MREPO_SIGNING_KEY ci/repo-publish.sh
 
       - name: Upload the tree for Pages
         uses: actions/upload-pages-artifact@v5

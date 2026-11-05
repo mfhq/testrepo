@@ -5,9 +5,11 @@
 # once the new tree is deployed. Without pruning, the release would run into
 # the limit of 1000 assets that GitHub has.
 #
-# RELEASE_TAG names the release.
+# The image URL prefix in manifold-repo.toml names the release.
 #
 set -euo pipefail
+
+release_tag=$(python3 -I "$(dirname "$0")/repo-config.py" release-tag)
 
 keep=_repo/keep.txt
 assets=_repo/assets.txt
@@ -18,14 +20,14 @@ if [ ! -s "$keep" ]; then
     exit 0
 fi
 
-release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .id)
+release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --jq .id)
 gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" \
     --jq '.[].name | select(endswith(".raw.zck"))' | LC_ALL=C sort > "$assets"
 
 removed=0
 while read -r name; do
     echo "Removing $name"
-    gh release delete-asset "$RELEASE_TAG" "$name" --yes
+    gh release delete-asset "$release_tag" "$name" --yes
     removed=$((removed + 1))
 done < <(LC_ALL=C comm -23 "$assets" "$keep")
 echo "Removed $removed of the $(wc -l < "$assets") images in the release"

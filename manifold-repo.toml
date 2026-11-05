@@ -1,0 +1,27 @@
+# The Manifold repository that the workflow in .github/workflows/deploy-repo.yml
+# makes with manifold-mrepo, from the bundles of a build. Its root index is
+# signed with the private key in $MREPO_SIGNING_KEY.
+
+[repository]
+id = "testrepo"
+summary = "Test images for Manifold"
+url = "https://mfhq.github.io/testrepo"
+# the workflow publishes the repository again every month, long before the root
+# index has used up half of this
+valid-days = 180
+
+# The workflow makes the repository anew on every run, so everything it writes
+# stays in _repo/.
+[paths]
+incoming = "_repo/incoming"
+public = "_repo/public"
+database = "_repo/mrepo.sqlite"
+
+[trust]
+keys = "trusted-keys"
+
+# The images are too large for GitHub Pages, so they are assets of a release
+# instead. The CI scripts take the tag of that release from this URL.
+[channels.main]
+image-url-prefix = "https://github.com/mfhq/testrepo/releases/download/artifacts"
+omit-local-images = true
