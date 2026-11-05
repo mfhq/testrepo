@@ -1,43 +1,250 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+# Build all recipes with the development versions of Manifold and
+# manifold-builder, cores first, then platforms, then apps, and publish them as
+# a Manifold repository with manifold-mrepo: its indexes and catalogs on GitHub
+# Pages, and its images as assets of one release, so Pages never serves them.
+#
+# The repository has no state of its own. Every run makes it again from the
+# bundles of one build, and the release keeps the images of the index that was
+# published before, for clients that still have that one.
+name: Repository
 
 on:
-  # Runs on pushes targeting the default branch
   push:
-    branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
+    branches: [main]
+  pull_request:
+  # the root index expires after a week, so we sign it again every day, from the bundles of the last build
+  schedule:
+    - cron: '23 4 * * *'
   workflow_dispatch:
+    inputs:
+      rebuild:
+        description: Build all recipes, instead of publishing the bundles of the last build again
+        type: boolean
+        default: true
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# the runs of a branch replace the same repository, so they wait for each other;
+# a pull request only needs its newest run
 concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  REPO_ID: testrepo
+  REPO_SUMMARY: Test images for Manifold
+  # the release whose assets are the images
+  RELEASE_TAG: artifacts
 
 jobs:
-  # Single deploy job since we're just deploying
-  deploy:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      publish: ${{ steps.plan.outputs.publish }}
+      bundles-run: ${{ steps.plan.outputs.bundles-run }}
+
+    steps:
+      - name: Decide what to build and publish
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REBUILD: ${{ inputs.rebuild }}
+        run: |
+          # only main is published, pull requests are built and nothing else
+          publish=false
+          if [ "$EVENT" != pull_request ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            publish=true
+          fi
+
+          build=true
+          bundles_run=$GITHUB_RUN_ID
+          if [ "$publish" = true ] && { [ "$EVENT" = schedule ] || [ "$REBUILD" = false ]; }; then
+            # the newest successful run of this workflow on main that built bundles, which are still there
+            workflow=${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY"/}
+            workflow=${workflow%%@*}
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=bundles-cores&per_page=100" \
+              --jq '.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main") | .workflow_run.id')
+            for run in $runs; do
+              read -r path event conclusion < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" \
+                --jq '"\(.path) \(.event) \(.conclusion)"')
+              if [ "$path" = "$workflow" ] && [ "$event" != pull_request ] && [ "$conclusion" = success ]; then
+                build=false
+                bundles_run=$run
+                break
+              fi
+            done
+            if [ "$build" = true ]; then
+              echo "::notice::There are no bundles of an earlier build to publish again, so we build them"
+            fi
+          fi
+
+          {
+            echo "build=$build"
+            echo "publish=$publish"
+            echo "bundles-run=$bundles_run"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Plan"
+            echo
+            if [ "$build" = true ]; then
+              echo "* Building all recipes"
+            else
+              echo "* Using the bundles of run [$bundles_run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$bundles_run)"
+            fi
+            if [ "$publish" = true ]; then
+              echo "* Publishing the repository"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  tools:
+    name: Tools
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the tools image
+        run: sudo podman build --tag manifold-tools --file ci/Containerfile ci
+
+      - name: Summarize
+        run: |
+          {
+            echo "### Tools"
+            echo
+            echo '```'
+            sudo podman run --rm manifold-tools cat /usr/local/share/manifold-ci/versions
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the tools image
+        run: sudo podman save manifold-tools | zstd -T0 -q -c > tools-image.tar.zst
+
+      - name: Upload the tools image
+        uses: actions/upload-artifact@v7
+        with:
+          name: tools-image
+          path: tools-image.tar.zst
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  cores:
+    name: Cores
+    needs: [plan, tools]
+    if: needs.plan.outputs.build == 'true'
+    uses: ./.github/workflows/build-stage.yml
+    with:
+      stage: cores
+      sign: ${{ needs.plan.outputs.publish == 'true' }}
+    secrets:
+      MANIFOLD_SIGNING_KEY: ${{ secrets.MANIFOLD_SIGNING_KEY }}
+
+  platforms:
+    name: Platforms
+    needs: [plan, cores]
+    if: needs.plan.outputs.build == 'true'
+    uses: ./.github/workflows/build-stage.yml
+    with:
+      stage: platforms
+      sign: ${{ needs.plan.outputs.publish == 'true' }}
+    secrets:
+      MANIFOLD_SIGNING_KEY: ${{ secrets.MANIFOLD_SIGNING_KEY }}
+
+  apps:
+    name: Apps
+    needs: [plan, platforms]
+    if: needs.plan.outputs.build == 'true'
+    uses: ./.github/workflows/build-stage.yml
+    with:
+      stage: apps
+      sign: ${{ needs.plan.outputs.publish == 'true' }}
+    secrets:
+      MANIFOLD_SIGNING_KEY: ${{ secrets.MANIFOLD_SIGNING_KEY }}
+
+  publish:
+    name: Publish
+    needs: [plan, tools, apps]
+    # without a build, the stages are skipped, and the bundles come from an earlier run
+    if: >-
+      !cancelled()
+      && needs.plan.outputs.publish == 'true'
+      && needs.tools.result == 'success'
+      && (needs.plan.outputs.build == 'false' || needs.apps.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      # the release with the images
+      contents: write
+      pages: write
+      id-token: write
+      # the bundles of an earlier run
+      actions: read
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-tools
+
+      - name: Set up Pages
+        id: pages
+        uses: actions/configure-pages@v6
+
+      - name: Download the bundles
+        if: needs.plan.outputs.build == 'true'
+        uses: actions/download-artifact@v8
         with:
-          # Upload entire repository
-          path: '.'
-      - name: Deploy to GitHub Pages
+          pattern: bundles-*
+          path: _bundles
+          merge-multiple: true
+
+      - name: Download the bundles of run ${{ needs.plan.outputs.bundles-run }}
+        if: needs.plan.outputs.build == 'false'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bundles-*
+          path: _bundles
+          merge-multiple: true
+          run-id: ${{ needs.plan.outputs.bundles-run }}
+          github-token: ${{ github.token }}
+
+      - name: Make the repository
+        env:
+          REPO_URL: ${{ steps.pages.outputs.base_url }}
+          IMAGE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/{file}
+        run: ci/in-container.sh --env REPO_ID --env REPO_SUMMARY --env REPO_URL --env IMAGE_URL ci/repo-import.sh
+
+      - name: Upload new images to the release
+        env:
+          REPO_URL: ${{ steps.pages.outputs.base_url }}
+        run: ci/upload-images.sh
+
+      - name: Publish the repository
+        env:
+          REPO_URL: ${{ steps.pages.outputs.base_url }}
+          MREPO_SIGNING_KEY: ${{ secrets.MREPO_SIGNING_KEY }}
+        run: ci/in-container.sh --env REPO_URL --env MREPO_SIGNING_KEY ci/repo-publish.sh
+
+      - name: Upload the tree for Pages
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _repo/public
+
+      - name: Deploy to Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+      - name: Remove the images no index needs any more
+        run: ci/prune-release.sh

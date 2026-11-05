@@ -1,0 +1,78 @@
+# Build the recipes of one stage, on the bundles of the stages before it, and
+# make the bundles available as an artifact. Called by deploy-repo.yml, once
+# for each stage, which also builds the tools image this needs.
+name: Build a stage
+
+on:
+  workflow_call:
+    inputs:
+      stage:
+        description: 'The stage to build: "cores", "platforms" or "apps"'
+        type: string
+        required: true
+      sign:
+        description: Sign the bundles with the key in the MANIFOLD_SIGNING_KEY secret
+        type: boolean
+        default: false
+    secrets:
+      MANIFOLD_SIGNING_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      STAGE: ${{ inputs.stage }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # the builder numbers images by the commits of the repository
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-tools
+        with:
+          make-room: true
+
+      - name: Download the bundles of the earlier stages
+        if: inputs.stage != 'cores'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bundles-*
+          path: _bundles/in
+          merge-multiple: true
+
+      - name: Build the ${{ inputs.stage }}
+        run: ci/in-container.sh --env RUNNER_DEBUG ci/build-recipes.sh "$STAGE" _bundles/in _bundles/out
+
+      - name: Sign the bundles
+        if: inputs.sign
+        env:
+          MANIFOLD_SIGNING_KEY: ${{ secrets.MANIFOLD_SIGNING_KEY }}
+        run: ci/sign-bundles.sh _bundles/out
+
+      - name: Summarize
+        run: |
+          {
+            echo "### Built ${STAGE}"
+            echo
+            echo '```'
+            cat "_bundles/out/$STAGE.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundles-${{ inputs.stage }}
+          path: _bundles/out
+          # the daily run publishes the bundles of the last build again, for as long as they are here
+          retention-days: 30
+          # images are compressed already
+          compression-level: 0
+          if-no-files-found: error

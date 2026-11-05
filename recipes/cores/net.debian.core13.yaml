@@ -17,7 +17,7 @@ bootstrap:
   distribution: debian
   suite: trixie
   architecture: amd64
-  snapshot: "2026-10-18T00:00:00Z"
+  snapshot: "2026-11-04T00:00:00Z"
   # Drop documentation, manual pages and message catalogs, except those
   # of the locales below.
   slim: true

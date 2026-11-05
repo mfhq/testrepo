@@ -1,0 +1,25 @@
+# The image the workflow builds recipes and the repository in: Debian testing,
+# with the development versions of Manifold, manifold-builder and manifold-mrepo
+# installed to /usr/local. Containers of it have to be privileged, so builds can
+# create user namespaces and mount in them.
+#
+# To build it locally, from the root of the repository:
+#
+#   sudo podman build -t manifold-tools -f ci/Containerfile ci
+#
+# The *_REF build arguments select a branch or tag of each project.
+
+ARG BASE_IMAGE=docker.io/library/debian:testing
+FROM ${BASE_IMAGE}
+
+COPY install-deps.sh /tmp/install-deps.sh
+RUN /tmp/install-deps.sh && rm /tmp/install-deps.sh
+
+ARG MANIFOLD_REF=main
+ARG BUILDER_REF=main
+ARG MREPO_REF=main
+COPY install-tools.sh /tmp/install-tools.sh
+RUN /tmp/install-tools.sh "$MANIFOLD_REF" "$BUILDER_REF" "$MREPO_REF" && rm /tmp/install-tools.sh
+
+COPY enter.sh /usr/local/bin/ci-enter
+ENTRYPOINT ["/usr/local/bin/ci-enter"]

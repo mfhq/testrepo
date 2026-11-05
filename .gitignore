@@ -1,0 +1,4 @@
+# what the workflow writes into the checkout
+/_bundles/
+/_repo/
+/tools-image.tar.zst
