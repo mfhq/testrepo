@@ -79,3 +79,18 @@ cat >> /etc/wgetrc <<'EOF'
 retry_on_http_error = 429,500,502,503,504
 retry_connrefused = on
 EOF
+
+# A copy of debuerreotype that takes the current Debian archive wherever it
+# would take a snapshot, for building cores while snapshot.debian.org is unwell.
+# build-recipes.sh uses it with CORE_ARCHIVE=current. Its scripts read the
+# version from next to their directory, so we copy all of it.
+current=/usr/local/share/manifold-ci/debuerreotype-current
+mkdir -p "$(dirname "$current")"
+cp -a /usr/share/debuerreotype "$current"
+cat > "$current/scripts/.snapshot-url.sh" <<'EOF'
+#!/usr/bin/env bash
+# Stands in for the script of debuerreotype that names the snapshot of an
+# archive at a time: we name the archive as it is now, whatever the time.
+set -Eeuo pipefail
+echo "http://deb.debian.org/${2:-debian}"
+EOF

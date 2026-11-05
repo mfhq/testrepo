@@ -28,6 +28,9 @@ jobs:
     timeout-minutes: 180
     env:
       STAGE: ${{ inputs.stage }}
+      # build the cores from the current Debian archive instead of their
+      # snapshots, while snapshot.debian.org is unwell; remove to pin them again
+      CORE_ARCHIVE: current
 
     steps:
       - uses: actions/checkout@v7
@@ -48,7 +51,7 @@ jobs:
           merge-multiple: true
 
       - name: Build the ${{ inputs.stage }}
-        run: ci/in-container.sh --env RUNNER_DEBUG ci/build-recipes.sh "$STAGE" _bundles/in _bundles/out
+        run: ci/in-container.sh --env RUNNER_DEBUG --env CORE_ARCHIVE ci/build-recipes.sh "$STAGE" _bundles/in _bundles/out
 
       - name: Sign the bundles
         if: inputs.sign

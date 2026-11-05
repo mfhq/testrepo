@@ -13,6 +13,10 @@
 #
 # Usage: build-recipes.sh STAGE EARLIER_BUNDLES_DIR OUTPUT_DIR
 #
+# With CORE_ARCHIVE=current in the environment, cores are built from the
+# current Debian archive instead of the snapshot their recipe names. That is
+# for when snapshot.debian.org is unwell, as the cores are not pinned then.
+#
 set -euo pipefail
 shopt -s nullglob
 
@@ -35,6 +39,22 @@ esac
 # Cores take the time of their snapshot anyway.
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}
 
+core_archive=${CORE_ARCHIVE:-snapshot}
+case "$core_archive" in
+    snapshot) ;;
+    current)
+        # debuerreotype, with the current archive as the snapshot of any time
+        export DEBUERREOTYPE_SCRIPT_DIR=/usr/local/share/manifold-ci/debuerreotype-current/scripts
+        if [ "$stage" = cores ]; then
+            echo "::warning::The cores are built from the current Debian archive, not from their snapshots"
+        fi
+        ;;
+    *)
+        echo "Unknown CORE_ARCHIVE: $core_archive" >&2
+        exit 2
+        ;;
+esac
+
 mkdir -p "$output_dir"
 listing="$output_dir/$stage.txt"
 versions=/usr/local/share/manifold-ci/versions
@@ -43,6 +63,9 @@ versions=/usr/local/share/manifold-ci/versions
     if [ -r "$versions" ]; then
         echo "# built with:"
         sed 's/^/#   /' "$versions"
+    fi
+    if [ "$core_archive" = current ] && [ "$stage" = cores ]; then
+        echo "# from the current Debian archive, not from the snapshots of the recipes"
     fi
 } > "$listing"
 
