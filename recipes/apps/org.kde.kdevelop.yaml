@@ -1,0 +1,89 @@
+# KDevelop, the IDE of the KDE project
+component: org.kde.kdevelop
+version: 26.08.3
+
+command: kdevelop
+
+base: net.debian.core13.kf6
+base-version: 6.8.0
+
+# KDevelop builds and debugs with the compilers, build systems and the git of
+# the host, and hands temporary files to them.
+permissions:
+- host-commands
+- host-tmp
+
+packages:
+  apt:
+  - libclang-common-19-dev
+  # the terminal view of KDevelop embeds this
+  - konsole-kpart
+packages-sdk:
+  apt:
+  - gettext
+  - clang
+  - libclang-dev
+  - llvm-dev
+  - libboost-dev
+  - qt6-5compat-dev
+  - qt6-webengine-dev
+
+# What goes onto the host has to be named after the component.
+rename:
+  share/applications/org.kde.kdevelop_kdev4.desktop: org.kde.kdevelop.kdev4.desktop
+  share/mime/packages/kdevelop.xml: org.kde.kdevelop.xml
+
+integration:
+  alias:
+  - kdevelop
+  # opens the .kdev4 project files that the MIME package describes
+  desktop-entry:
+  - org.kde.kdevelop.kdev4.desktop
+  mime-package:
+  - org.kde.kdevelop.xml
+
+parts:
+- name: kdevelop
+  buildsystem: cmake
+  config-opts:
+  - -DBUILD_TESTING=OFF
+  - -DBUILD_BENCHMARKS=OFF
+  - -DBUILD_DOC=OFF
+  # qt6-tools-dev comes with the SDK of the platform, and Qt Help with it
+  - -DCMAKE_DISABLE_FIND_PACKAGE_Qt6Help=ON
+  cleanup:
+  - /include
+  - /lib/cmake
+  sources:
+  - type: archive
+    url: https://download.kde.org/stable/release-service/26.08.3/src/kdevelop-26.08.3.tar.xz
+    sha256: 30909673241fa5fd7cce31d7c28d8747c2de73874e9041efc518764ffc337267
+  post-install:
+  # The MetaInfo file still has the old style of ID with a .desktop suffix,
+  # which is not our component.
+  - sed -i 's|<id>org.kde.kdevelop.desktop</id>|<id>org.kde.kdevelop</id>|'
+    /app/share/metainfo/org.kde.kdevelop.appdata.xml
+  # On the host, the icon has to be named after the component. KDevelop
+  # itself still asks for "kdevelop", so we keep those and add copies.
+  - |
+    for icon in /app/share/icons/hicolor/*/apps/kdevelop.*; do
+        cp "$icon" "$(dirname "$icon")/org.kde.$(basename "$icon")"
+    done
+  - sed -i 's|^Icon=kdevelop$|Icon=org.kde.kdevelop|' /app/share/applications/org.kde.kdevelop*.desktop
+  # A MIME package for the host can not make an alias of a type
+  - sed -i -e '/<alias type="text\/x-kdevelop"\/>/d'
+    -e 's|<generic-icon name="kdevelop"/>|<generic-icon name="org.kde.kdevelop"/>|'
+    /app/share/mime/packages/kdevelop.xml
+  # Qt and the KDE Frameworks only look for plugins and data below /usr. We
+  # run KDevelop through a script that makes them look below /app as well.
+  - mkdir -p /app/libexec
+  - mv /app/bin/kdevelop /app/libexec/kdevelop
+  - |
+    cat > /app/bin/kdevelop <<'EOF'
+    #!/bin/sh
+    export QT_PLUGIN_PATH="/app/lib/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+    export QML_IMPORT_PATH="/app/lib/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+    export XDG_DATA_DIRS="/app/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+    exec /app/libexec/kdevelop "$@"
+    EOF
+  - chmod 755 /app/bin/kdevelop
