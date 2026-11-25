@@ -284,3 +284,15 @@ packages-sdk:
   - libkf6widgetsaddons-dev
   - libkf6windowsystem-dev
   - libkf6xmlgui-dev
+
+parts:
+# An environment file, which Manifold applies to every application on this
+# platform, so they find the plugins and QML modules they install below /app.
+- name: qt-app-environment
+  buildsystem: simple
+  build-commands:
+  - install -Dm644 60-qt-app.conf
+    "$DESTDIR/usr/lib/manifold/environment.d/60-qt-app.conf"
+  sources:
+  - type: file
+    path: net.debian.core13.kf6/60-qt-app.conf

@@ -74,16 +74,3 @@ parts:
   - sed -i -e '/<alias type="text\/x-kdevelop"\/>/d'
     -e 's|<generic-icon name="kdevelop"/>|<generic-icon name="org.kde.kdevelop"/>|'
     /app/share/mime/packages/kdevelop.xml
-  # Qt and the KDE Frameworks only look for plugins and data below /usr. We
-  # run KDevelop through a script that makes them look below /app as well.
-  - mkdir -p /app/libexec
-  - mv /app/bin/kdevelop /app/libexec/kdevelop
-  - |
-    cat > /app/bin/kdevelop <<'EOF'
-    #!/bin/sh
-    export QT_PLUGIN_PATH="/app/lib/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
-    export QML_IMPORT_PATH="/app/lib/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
-    export XDG_DATA_DIRS="/app/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-    exec /app/libexec/kdevelop "$@"
-    EOF
-  - chmod 755 /app/bin/kdevelop
